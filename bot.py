@@ -7,7 +7,7 @@ from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters.state import State, StatesGroup
 
 # Token del bot (reemplaza 'TU_TOKEN_DE_TELEGRAM' con el token real)
-API_TOKEN = 'TU_TOKEN_DE_TELEGRAM'
+API_TOKEN = 'AAEUN8DkISMIfTFKnNaLGhWnTy6bHU3YWKE'
 
 # Configuración básica y almacenamiento de estados
 logging.basicConfig(level=logging.INFO)
