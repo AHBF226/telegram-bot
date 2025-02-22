@@ -1,2 +1,2 @@
 aiogram==2.25.1
-pdf2docx
+pdf2docx==0.5.6
