@@ -1,98 +1,104 @@
 import logging
 import os
 import subprocess
-from aiogram import Bot, Dispatcher, types, executor
-from aiogram.contrib.fsm_storage.memory import MemoryStorage
-from aiogram.dispatcher import FSMContext
-from aiogram.dispatcher.filters.state import State, StatesGroup
+from aiogram import Bot, Dispatcher, types
+from aiogram.types import FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.filters import CommandStart
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram import Router
+import asyncio
 
-# Token del bot (reemplaza 'TU_TOKEN_DE_TELEGRAM' con el token real)
-API_TOKEN = 'AAEUN8DkISMIfTFKnNaLGhWnTy6bHU3YWKE'
+# Token del bot
+API_TOKEN = 'TU_TOKEN_AQUI'
 
-# Configuración básica y almacenamiento de estados
+# Configuración de logging
 logging.basicConfig(level=logging.INFO)
-storage = MemoryStorage()
-bot = Bot(token=API_TOKEN)
-dp = Dispatcher(bot, storage=storage)
 
-# Opciones de conversión disponibles
+# Inicialización del bot y dispatcher
+bot = Bot(token=API_TOKEN)
+storage = MemoryStorage()
+dp = Dispatcher(storage=storage)
+router = Router()
+
+# Opciones de conversión
 conversion_options = {
     'pdf_to_word': {'source': 'pdf', 'target': 'docx'},
     'word_to_pdf': {'source': 'docx', 'target': 'pdf'},
-    # Puedes agregar más conversiones aquí
 }
 
-# Definición de estados con FSM
+# Definición de estados
 class ConversionStates(StatesGroup):
     waiting_for_file = State()
 
-# Función que se encarga de realizar la conversión
-def convert_file(file_path, conversion):
-    base, _ = os.path.splitext(file_path)
-    target_path = ""
-    try:
-        if conversion == 'word_to_pdf':
-            # Usamos unoconv para convertir de Word a PDF
-            subprocess.run(['unoconv', '-f', 'pdf', file_path], check=True)
-            target_path = base + '.pdf'
-        elif conversion == 'pdf_to_word':
-            # Usamos pdf2docx para convertir de PDF a Word
-            target_path = base + '.docx'
-            subprocess.run(['pdf2docx', file_path, target_path], check=True)
-        # Se pueden agregar más condiciones para otros formatos
-        return target_path
-    except subprocess.CalledProcessError:
-        return None
+# Teclado de opciones
+async def conversion_keyboard():
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="PDF a Word", callback_data="pdf_to_word")],
+        [InlineKeyboardButton(text="Word a PDF", callback_data="word_to_pdf")]
+    ])
+    return keyboard
 
-# Handler para el comando /start que muestra el menú de conversión
-@dp.message_handler(commands=['start'])
+# Comando /start
+@dp.message(CommandStart())
 async def start_handler(message: types.Message):
-    markup = types.InlineKeyboardMarkup(row_width=2)
-    markup.add(
-        types.InlineKeyboardButton("PDF a Word", callback_data="pdf_to_word"),
-        types.InlineKeyboardButton("Word a PDF", callback_data="word_to_pdf")
-    )
-    await message.answer("¡Bienvenido! Selecciona la conversión que deseas realizar:", reply_markup=markup)
+    keyboard = await conversion_keyboard()
+    await message.answer("¡Hola! Selecciona el tipo de conversión:", reply_markup=keyboard)
 
-# Handler para los botones interactivos del menú
-@dp.callback_query_handler(lambda c: c.data in conversion_options)
+# Callback para conversión
+@dp.callback_query(lambda c: c.data in conversion_options)
 async def process_callback(callback_query: types.CallbackQuery, state: FSMContext):
     conversion = callback_query.data
-    # Guardamos la opción seleccionada en el estado del usuario
     await state.update_data(conversion=conversion)
-    await ConversionStates.waiting_for_file.set()
-    await bot.send_message(callback_query.from_user.id, f"Has seleccionado {conversion}. Ahora envía el archivo para convertirlo.")
+    await state.set_state(ConversionStates.waiting_for_file)
+    await callback_query.message.answer(f"Has seleccionado: {conversion.replace('_', ' ').title()}. Envía el archivo para continuar.")
     await bot.answer_callback_query(callback_query.id)
 
-# Handler para recibir el archivo del usuario y procesar la conversión
-@dp.message_handler(state=ConversionStates.waiting_for_file, content_types=types.ContentType.DOCUMENT)
+# Conversión de archivos
+def convert_file(file_path, conversion):
+    base, _ = os.path.splitext(file_path)
+    target_path = f"{base}.{conversion_options[conversion]['target']}"
+    try:
+        if conversion == 'word_to_pdf':
+            subprocess.run(['libreoffice', '--headless', '--convert-to', 'pdf', file_path], check=True)
+        elif conversion == 'pdf_to_word':
+            subprocess.run(['pdf2docx', file_path, target_path], check=True)
+        return target_path if os.path.exists(target_path) else None
+    except Exception as e:
+        logging.error(f"Error durante la conversión: {e}")
+        return None
+
+# Recepción del archivo
+@dp.message(ConversionStates.waiting_for_file, content_types=types.ContentType.DOCUMENT)
 async def handle_document(message: types.Message, state: FSMContext):
     data = await state.get_data()
     conversion = data.get('conversion')
     document = message.document
-    file_info = await bot.get_file(document.file_id)
-    file_path = file_info.file_path
-    downloaded_file = await bot.download_file(file_path)
-    local_filename = document.file_name
 
-    # Guardamos el archivo en el servidor
-    with open(local_filename, 'wb') as f:
-        f.write(downloaded_file.read())
+    file_path = f"downloads/{document.file_name}"
+    os.makedirs("downloads", exist_ok=True)
 
-    await message.answer("Archivo recibido, procesando conversión...")
+    # Descargar archivo
+    await bot.download(document, destination=file_path)
 
-    # Realizamos la conversión
-    result_path = convert_file(local_filename, conversion)
+    await message.answer("Archivo recibido, procesando...")
 
-    if result_path and os.path.exists(result_path):
-        await message.answer_document(types.InputFile(result_path))
-        # Eliminamos los archivos temporales
-        os.remove(local_filename)
+    # Realizar conversión
+    result_path = convert_file(file_path, conversion)
+
+    if result_path:
+        await message.answer_document(FSInputFile(result_path))
+        os.remove(file_path)
         os.remove(result_path)
     else:
-        await message.answer("Error durante la conversión.")
+        await message.answer("❌ Error en la conversión.")
 
-    await state.finish()
+    await state.clear()
+
+# Ejecución del bot
+async def main():
+    await dp.start_polling(bot)
 
 if __name__ == '__main__':
-    executor.start_polling(dp, skip_updates=True)
+    asyncio.run(main())
