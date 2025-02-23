@@ -12,7 +12,7 @@ from aiogram.client.session.aiohttp import AiohttpSession
 import asyncio
 
 # Token del bot
-API_TOKEN = 'TU_TOKEN_AQUI'
+API_TOKEN = 'AAEUN8DkISMIfTFKnNaLGhWnTy6bHU3YWKE'
 
 # Configuración de logging
 logging.basicConfig(level=logging.INFO)
