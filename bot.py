@@ -6,9 +6,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
-from aiogram import Router
 from aiogram.enums import ParseMode
-from aiogram.client.session.aiohttp import AiohttpSession
 import asyncio
 
 # Token del bot
@@ -70,13 +68,11 @@ async def handle_document(message: types.Message, state: FSMContext):
     data = await state.get_data()
     conversion = data.get('conversion')
     document = message.document
-    file_info = await bot.get_file(document.file_id)
-    file_path = file_info.file_path
-    downloaded_file = await bot.download_file(file_path)
+    file = await bot.download(document.file_id)
 
     local_filename = document.file_name
     with open(local_filename, 'wb') as f:
-        f.write(downloaded_file.read())
+        f.write(file.read())
 
     await message.answer("Archivo recibido. Procesando conversión...")
     result_path = convert_file(local_filename, conversion)
